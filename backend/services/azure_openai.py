@@ -2,14 +2,28 @@
 import json
 import os
 from openai import AzureOpenAI
-from config import Config
+import json
+from azure.identity import CertificateCredential
+import os
 
-# Initialize Azure OpenAI client
-client = AzureOpenAI(
-    azure_endpoint=Config.AZURE_OPENAI_ENDPOINT,
-    api_key=Config.AZURE_OPENAI_API_KEY,
-    api_version="2023-05-15"
-)
+def get_access_token():
+    dir_path = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
+    print(dir_path)
+    cert_path = dir_path + "/cert/apim-exp.pem"
+    print(cert_path)
+    
+    scope = "https://cognitiveservices.azure.com/.default"
+    credential = CertificateCredential(
+        client_id=os.environ["AZURE_SPN_CLIENT_ID"],
+        certificate_path=cert_path,
+        tenant_id=os.environ["AZURE_TENANT_ID"],
+        scope=scope,
+        logging_enable=False
+    )
+    
+    access_token = credential.get_token(scope).token
+    print(f"ACCESS_TOKEN===" + access_token + "\n")
+    return access_token
 
 def get_openai_response(message, history=None, function_result=None):
     """
@@ -25,6 +39,22 @@ def get_openai_response(message, history=None, function_result=None):
     """
     if history is None:
         history = []
+    
+    # Get access token
+    token = get_access_token()
+    azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
+    print(f"Azure OpenAI Endpoint: {azure_endpoint}")  # Debugging line
+    
+    # Initialize Azure OpenAI client
+    client = AzureOpenAI(
+        api_key=os.environ.get("AZURE_OPENAI_API_KEY"),
+        azure_endpoint=os.environ.get("AZURE_OPENAI_ENDPOINT"),
+        api_version="2024-12-01-preview",
+        default_headers={
+            "Authorization": f"Bearer {token}",
+            "user_sid": "1792420"
+        }
+    )
     
     # Construct messages for API
     messages = [{"role": "system", "content": "You are LROT, an AI assistant that can help with various tasks."}]
@@ -72,7 +102,7 @@ def get_openai_response(message, history=None, function_result=None):
     
     # Call Azure OpenAI API
     response = client.chat.completions.create(
-        model="gpt-4",  # Replace with your deployed model name
+        model="gpt-4o-2024-08-06",  # Using the model from your screenshot
         messages=messages,
         functions=functions,
         function_call="auto"
