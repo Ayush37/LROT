@@ -1,14 +1,13 @@
 // frontend/src/App.js
 import React from 'react';
-import './styles/App.css';
 import ChatInterface from './components/ChatInterface';
 import Header from './components/Header';
 
 function App() {
   return (
-    <div className="App">
+    <div className="flex flex-col h-screen bg-gray-50">
       <Header />
-      <main className="App-main">
+      <main className="flex-1 overflow-hidden">
         <ChatInterface />
       </main>
     </div>

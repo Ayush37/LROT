@@ -1,19 +1,50 @@
 /* frontend/src/styles/index.css */
-* {
-  box-sizing: border-box;
-  margin: 0;
-  padding: 0;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Animation for messages */
+.message-enter {
+  opacity: 0;
+  transform: translateY(20px);
 }
 
-body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+.message-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: opacity 300ms, transform 300ms;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+/* Custom styles for Calendar */
+.react-calendar {
+  width: 100% !important;
+  border: none !important;
+  font-family: inherit !important;
+}
+
+.react-calendar__tile--active {
+  background-color: #3b82f6 !important;
+}
+
+.react-calendar__tile--now {
+  background-color: #eff6ff !important;
+}
+
+/* Make scrollbars look nicer */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d5db;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #9ca3af;
 }
