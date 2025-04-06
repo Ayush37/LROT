@@ -1,0 +1,99 @@
+/* frontend/src/styles/DateSelector.css */
+.date-selector-modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.date-selector-content {
+  background-color: white;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+  max-width: 90%;
+  width: 400px;
+  position: relative;
+}
+
+.close-button {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #777;
+}
+
+.date-selector-content h3 {
+  margin-top: 0;
+  color: #2c3e50;
+  text-align: center;
+  margin-bottom: 1rem;
+}
+
+.date-confirmation {
+  text-align: center;
+}
+
+.date-confirmation p {
+  margin: 0.5rem 0;
+  font-size: 1.1rem;
+}
+
+.button-group {
+  display: flex;
+  justify-content: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.cancel-button, .confirm-button {
+  padding: 0.7rem 1.5rem;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 600;
+  transition: background-color 0.2s;
+}
+
+.cancel-button {
+  background-color: #f0f2f5;
+  color: #333;
+}
+
+.confirm-button {
+  background-color: #3498db;
+  color: white;
+}
+
+.cancel-button:hover {
+  background-color: #e4e6eb;
+}
+
+.confirm-button:hover {
+  background-color: #2980b9;
+}
+
+/* Override react-calendar styles */
+.react-calendar {
+  width: 100% !important;
+  border: none !important;
+  font-family: inherit !important;
+}
+
+.react-calendar__tile--active {
+  background-color: #3498db !important;
+}
+
+.react-calendar__tile--now {
+  background-color: #f0f2f5 !important;
+}

@@ -1,0 +1,130 @@
+/* frontend/src/styles/ChatMessage.css */
+.message {
+  display: flex;
+  margin-bottom: 1rem;
+}
+
+.user-message {
+  justify-content: flex-end;
+}
+
+.assistant-message, .system-message {
+  justify-content: flex-start;
+}
+
+.message-content {
+  max-width: 80%;
+  padding: 0.8rem 1rem;
+  border-radius: 18px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.user-message .message-content {
+  background-color: #3498db;
+  color: white;
+  border-bottom-right-radius: 4px;
+}
+
+.assistant-message .message-content {
+  background-color: #f0f2f5;
+  color: #333;
+  border-bottom-left-radius: 4px;
+}
+
+.system-message .message-content {
+  background-color: #f8f9fa;
+  color: #666;
+  font-style: italic;
+  font-size: 0.9rem;
+}
+
+.function-result {
+  margin-top: 0.8rem;
+  padding: 1rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+.time-result {
+  display: flex;
+  flex-direction: column;
+}
+
+.time-info {
+  margin-bottom: 1rem;
+}
+
+.time-info p {
+  margin: 0.3rem 0;
+}
+
+.message-box {
+  background-color: #e8f4fd;
+  padding: 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  color: #2c3e50;
+  text-align: center;
+}
+
+.summary-box {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  background-color: #e8f4fd;
+  border-radius: 8px;
+}
+
+.summary-box h3 {
+  margin-top: 0;
+  color: #2c3e50;
+}
+
+.threshold-alert {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.variance-table-container {
+  overflow-x: auto;
+}
+
+.variance-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: right;
+  font-size: 0.85rem;
+}
+
+.variance-table th, .variance-table td {
+  padding: 0.6rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.variance-table th {
+  background-color: #f8f9fa;
+  font-weight: 600;
+  color: #2c3e50;
+  text-align: center;
+}
+
+.variance-alert {
+  color: #e74c3c;
+  font-weight: 600;
+}
+
+.table-footer {
+  margin-top: 0.5rem;
+  text-align: center;
+  font-size: 0.85rem;
+  color: #777;
+}
+
+.error-message {
+  color: #e74c3c;
+  padding: 0.8rem;
+  background-color: #fdeaea;
+  border-radius: 8px;
+  margin-top: 0.5rem;
+}

@@ -1,0 +1,7 @@
+# backend/requirements.txt
+flask
+flask-cors
+pytz
+pandas
+openai
+python-dotenv
