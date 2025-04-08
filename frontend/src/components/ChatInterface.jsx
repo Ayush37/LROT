@@ -127,8 +127,82 @@ function ChatInterface() {
   };
   
   const handleDateSelection = async (dates) => {
-    // [Function implementation remains the same]
-  };
+  console.log("handleDateSelection called with dates:", dates);
+  setSelectedDates(dates);
+  setShowDateSelector(false);
+  
+  // Add dates message to chat
+  setMessages(prevMessages => [...prevMessages, { 
+    type: 'system', 
+    content: `Selected dates: ${dates.date1} and ${dates.date2}` 
+  }]);
+  
+  setIsLoading(true);
+  setError(null);
+  
+  try {
+    // Call backend function directly
+    console.log("Calling backend with SLS variance function");
+    
+    const apiUrl = `${process.env.REACT_APP_API_URL || 'http://172.24.98.189:5001'}/api/chat`;
+	  
+    const requestData = {
+      message: 'Calculate the variance for SLS details',
+      function_call: {
+        name: 'sls_details_variance',
+        arguments: {
+          date1: dates.date1,
+          date2: dates.date2
+        }
+      }
+    };
+    
+    console.log("Sending request to:", apiUrl);
+    console.log("Request data:", JSON.stringify(requestData, null, 2));
+    
+    const response = await axios.post(apiUrl, requestData);
+    
+    console.log("Response received:", response);
+    console.log("Response data:", JSON.stringify(response.data, null, 2));
+    
+    if (!response.data || !response.data.response) {
+      throw new Error("Invalid response format from server");
+    }
+    
+    // Add response to chat
+    console.log("Adding assistant response to chat with function results");
+    setMessages(prevMessages => [...prevMessages, { 
+      type: 'assistant', 
+      content: response.data.response.content,
+      data: response.data.response.function_call ? response.data.response : null
+    }]);
+    
+  } catch (error) {
+    console.error("Error in handleDateSelection:", error);
+    
+    // Log detailed error information
+    if (error.response) {
+      console.error("Error response data:", error.response.data);
+      console.error("Error response status:", error.response.status);
+      console.error("Error response headers:", error.response.headers);
+      setError(`Server error: ${error.response.status}. ${JSON.stringify(error.response.data)}`);
+    } else if (error.request) {
+      console.error("Error request:", error.request);
+      setError("No response received from server. Check if the backend is running.");
+    } else {
+      console.error("Error message:", error.message);
+      setError(`Error: ${error.message}`);
+    }
+    
+    // Add error message to chat
+    setMessages(prevMessages => [...prevMessages, { 
+      type: 'assistant', 
+      content: `Sorry, there was an error calculating the variance. Please try again. ${error.message}` 
+    }]);
+  }
+  
+  setIsLoading(false);
+};
   
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
