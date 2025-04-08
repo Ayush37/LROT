@@ -1,44 +1,50 @@
 import boto3
-import re
+import random
 
 bucket_name = "<bucket_id>"
-base_prefix = "refined/reporting/"
-max_sample = 5000  # set to None for full scan
+prefix = "refined/reporting/"
+sample_limit = 5000  # How many real files to sample
 
 s3 = boto3.client('s3')
 paginator = s3.get_paginator('list_objects_v2')
 
-# Only consider real files (skip folders or 0-byte keys that are placeholders)
-def is_real_file(key, size):
-    return not key.endswith('/') and size > 0
+sample_sizes = []
+total_file_count = 0
 
-object_sizes = []
-total_object_count = 0
+print(f"Scanning all objects under s3://{bucket_name}/{prefix}")
 
-for page in paginator.paginate(Bucket=bucket_name, Prefix=base_prefix):
+for page in paginator.paginate(Bucket=bucket_name, Prefix=prefix):
     for obj in page.get('Contents', []):
         key = obj['Key']
         size = obj['Size']
 
-        if is_real_file(key, size):
-            object_sizes.append(size)
-            total_object_count += 1
+        # Skip folder-like placeholders
+        if key.endswith('/') or size == 0:
+            continue
 
-            # Limit if sampling
-            if max_sample and len(object_sizes) >= max_sample:
-                break
-    if max_sample and len(object_sizes) >= max_sample:
-        break
+        # Count every real file
+        total_file_count += 1
 
-# Calculate stats
-if object_sizes:
-    avg_size = sum(object_sizes) / len(object_sizes)
-    estimated_total_bytes = avg_size * total_object_count
+        # Sampling (randomized or first N)
+        if len(sample_sizes) < sample_limit:
+            sample_sizes.append(size)
+        else:
+            # Reservoir sampling for better randomness
+            i = random.randint(0, total_file_count - 1)
+            if i < sample_limit:
+                sample_sizes[i] = size
+
+# Estimate
+if sample_sizes:
+    avg_sample_size = sum(sample_sizes) / len(sample_sizes)
+    estimated_total_bytes = avg_sample_size * total_file_count
     estimated_total_tb = estimated_total_bytes / (1024 ** 4)
 
-    print(f"Scanned {len(object_sizes)} real files (out of {total_object_count} total)")
-    print(f"Avg size: {avg_size:.2f} bytes")
-    print(f"Estimated total size: {estimated_total_tb:.3f} TB")
+    print("\n=== Results ===")
+    print(f"Sample size: {len(sample_sizes)}")
+    print(f"Total real file count: {total_file_count}")
+    print(f"Avg file size (sample): {avg_sample_size:.2f} bytes")
+    print(f"Estimated total size: {estimated_total_bytes:.2f} bytes ({estimated_total_tb:.3f} TB)")
 else:
-    print("No real data files found.")
+    print("No real files found.")
 
