@@ -2,7 +2,7 @@
 import json
 import os
 import logging
-import cx_Oracle
+import jaydebeapi
 import traceback
 from datetime import datetime
 from dateutil import parser
@@ -110,45 +110,55 @@ def execute_oracle_query(query):
         # Validate connection parameters
         if not all([oracle_user, oracle_password, oracle_host, oracle_port, oracle_service_name]):
             raise ValueError("Missing Oracle database connection parameters")
-            
-        # Create connection string
-        dsn = cx_Oracle.makedsn(oracle_host, oracle_port, service_name=oracle_service_name)
         
-        # Connect to Oracle
-        connection = cx_Oracle.connect(
-            user=oracle_user,
-            password=oracle_password,
-            dsn=dsn
-        )
+        # JDBC driver path and class
+        jdbc_driver_path = os.environ.get('JDBC_DRIVER_PATH', 'ojdbc8.jar')
+        jdbc_driver_class = "oracle.jdbc.driver.OracleDriver"
         
+        # Create JDBC URL
+        jdbc_url = f"jdbc:oracle:thin:@{oracle_host}:{oracle_port}/{oracle_service_name}"
+        
+        logger.debug(f"JDBC URL: {jdbc_url}")
         logger.debug(f"Executing Oracle query: {query}")
+        
+        # Connect to Oracle using jaydebeapi
+        connection = jaydebeapi.connect(
+            jdbc_driver_class,
+            jdbc_url,
+            [oracle_user, oracle_password],
+            jdbc_driver_path
+        )
         
         # Execute query
         cursor = connection.cursor()
         cursor.execute(query)
         
-        # Fetch all data and column names
+        # Fetch all data
         data = cursor.fetchall()
-        columns = [desc[0] for desc in cursor.description]
+        
+        # Get column names from cursor description
+        column_names = [desc[0] for desc in cursor.description]
         
         # Close cursor and connection
         cursor.close()
         connection.close()
         
         # Convert to list of dictionaries
+        # Note: jaydebeapi may return different data types compared to cx_Oracle
         results = []
         for row in data:
             result_row = {}
-            for i, column in enumerate(columns):
-                result_row[column] = row[i]
+            for i, column in enumerate(column_names):
+                # Handle special data types (dates, etc.)
+                value = row[i]
+                if isinstance(value, (datetime,)):
+                    value = value.strftime('%Y-%m-%d %H:%M:%S')
+                result_row[column] = value
             results.append(result_row)
             
         return results
-    except cx_Oracle.Error as e:
-        logger.error(f"Oracle error: {str(e)}")
-        raise
     except Exception as e:
-        logger.error(f"Error executing query: {str(e)}")
+        logger.error(f"Oracle error: {str(e)}")
         logger.error(traceback.format_exc())
         raise
 
@@ -189,26 +199,36 @@ def get_6g_status(cob_date, table_name=None):
         # Organize results by table
         tables_data = {}
         for row in results:
-            bpf_id = row['BPF_ID']
+            bpf_id = str(row['BPF_ID'])  # Ensure bpf_id is a string
             
             # Find table name from BPF ID
-            table_info = next((t for t in config['tables'] if t['bpf_id'] == str(bpf_id)), None)
+            table_info = next((t for t in config['tables'] if t['bpf_id'] == bpf_id), None)
             if not table_info:
                 continue
                 
-            # Format dates for output
-            start_time = row['START_TIME'].strftime('%Y-%m-%d %H:%M:%S') if row['START_TIME'] else None
-            end_time = row['END_TIME'].strftime('%Y-%m-%d %H:%M:%S') if row['END_TIME'] else None
+            # Get start and end times
+            start_time = row['START_TIME']
+            end_time = row['END_TIME']
+            
+            # Calculate duration in minutes if both times are available
+            duration_minutes = None
+            if isinstance(start_time, str) and isinstance(end_time, str):
+                try:
+                    start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    duration_minutes = round((end_dt - start_dt).total_seconds() / 60)
+                except Exception as e:
+                    logger.warning(f"Could not calculate duration: {str(e)}")
             
             # Store table data
             tables_data[bpf_id] = {
-                "bpf_id": str(bpf_id),
+                "bpf_id": bpf_id,
                 "name": table_info['name'],
                 "status": row['STATUS'],
-                "process_name": row['PROCESS_NAME'],
+                "process_name": row.get('PROCESS_NAME', ''),
                 "start_time": start_time,
                 "end_time": end_time,
-                "duration_minutes": round((row['END_TIME'] - row['START_TIME']).total_seconds() / 60) if row['END_TIME'] and row['START_TIME'] else None
+                "duration_minutes": duration_minutes
             }
             
         # Convert to list and sort by table ID
