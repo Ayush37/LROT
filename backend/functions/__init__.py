@@ -2,3 +2,4 @@
 # Import all functions to ensure they get registered
 from functions.time_remaining import *
 from functions.sls_details_variance import *
+from functions.get_6g_status import *

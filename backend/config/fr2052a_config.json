@@ -1,0 +1,88 @@
+{
+  "process_name": "FR2052a REPORT",
+  "process_alias": "6G",
+  "tables": [
+    {
+      "id": 1,
+      "name": "Inflow Asset",
+      "bpf_id": "6101"
+    },
+    {
+      "id": 2,
+      "name": "Inflow UnSecured",
+      "bpf_id": "6102"
+    },
+    {
+      "id": 3,
+      "name": "Inflow Secured",
+      "bpf_id": "6103"
+    },
+    {
+      "id": 4,
+      "name": "Inflow Others",
+      "bpf_id": "6104"
+    },
+    {
+      "id": 5,
+      "name": "Outflow Deposit",
+      "bpf_id": "6105"
+    },
+    {
+      "id": 6,
+      "name": "Outflow Wholesale",
+      "bpf_id": "6106"
+    },
+    {
+      "id": 7,
+      "name": "Outflow Others",
+      "bpf_id": "6107"
+    },
+    {
+      "id": 8,
+      "name": "Outflow Secured",
+      "bpf_id": "6108"
+    },
+    {
+      "id": 9,
+      "name": "Supplement Info",
+      "bpf_id": "6109"
+    },
+    {
+      "id": 10,
+      "name": "Supplement FX",
+      "bpf_id": "6110"
+    },
+    {
+      "id": 11,
+      "name": "Create Supplemetal_DERIVATIVES_COLLATERAL",
+      "bpf_id": "6111"
+    },
+    {
+      "id": 12,
+      "name": "Supplemental Balance Sheet",
+      "bpf_id": "6112"
+    },
+    {
+      "id": 13,
+      "name": "Supplemental LRM EXTRACT EOD",
+      "bpf_id": "6113"
+    }
+  ],
+  "process_markers": {
+    "prelim_end": {
+      "bpf_id": "16011",
+      "process_id": "1",
+      "run_type": "EOD"
+    },
+    "sls_lock_start": {
+      "bpf_id": "200163",
+      "process_id": "1",
+      "run_type": ["SOD", "EOD"]
+    }
+  },
+  "query_templates": {
+    "time_window": "WITH MaxTimes AS (\n  SELECT\n    (SELECT MAX(end_time)\n     FROM bpmdbo.v_bpf_run_instance\n     WHERE bpf_id = {prelim_bpf_id}\n       AND process_id = {prelim_process_id}\n       AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n       AND run_type = '{prelim_run_type}') AS max_end_time_prelim,\n\n    (SELECT MAX(start_time)\n     FROM bpmdbo.v_bpf_run_instance\n     WHERE bpf_id = {sls_lock_bpf_id}\n       AND process_id = {sls_lock_process_id}\n       AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n       AND run_type IN ({sls_lock_run_types})) AS max_start_time_sls_lock\n  FROM dual\n)",
+    "single_table": "{time_window}\nSELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\nFROM (\n  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\n  FROM bpmdbo.v_bpf_run_instance_hist\n  WHERE bpf_id = '{bpf_id}'\n    AND process_id = '10'\n    AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n    AND status = 'COMPLETED'\n    AND END_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)\n    AND (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)\n         OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)\n\n  UNION ALL\n\n  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\n  FROM bpmdbo.v_bpf_run_instance\n  WHERE bpf_id = '{bpf_id}'\n    AND process_id = '10'\n    AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n    AND status = 'COMPLETED'\n    AND END_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)\n    AND (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)\n         OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)\n)\nORDER BY END_TIME DESC",
+    "all_tables": "{time_window}\nSELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\nFROM (\n  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\n  FROM bpmdbo.v_bpf_run_instance_hist\n  WHERE bpf_id IN ({bpf_ids})\n    AND process_id = '10'\n    AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n    AND status = 'COMPLETED'\n    AND END_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)\n    AND (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)\n         OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)\n\n  UNION ALL\n\n  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time\n  FROM bpmdbo.v_bpf_run_instance\n  WHERE bpf_id IN ({bpf_ids})\n    AND process_id = '10'\n    AND cob_date = TO_DATE('{cob_date}', 'DD-Mon-YYYY')\n    AND status = 'COMPLETED'\n    AND END_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)\n    AND (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)\n         OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)\n)\nORDER BY bpf_id, END_TIME DESC"
+  }
+}

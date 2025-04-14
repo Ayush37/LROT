@@ -250,6 +250,13 @@ function ChatInterface() {
                 <h3 className="font-medium text-gray-900">Time remaining until EOD</h3>
                 <p className="text-sm text-gray-500 mt-1">Check hours left before 5PM EST</p>
               </button>
+              <button 
+                onClick={() => setInput('What is the status of 6G batch process for today?')}
+                className="bg-white border border-gray-300 rounded-xl p-4 hover:bg-gray-50 transition-colors text-left shadow-sm"
+              >
+                <h3 className="font-medium text-gray-900">Check 6G Batch Status</h3>
+               <p className="text-sm text-gray-500 mt-1">Get current status of FR2052a (6G) batch process</p>
+              </button>		
             </div>
           </div>
         ) : (

@@ -97,6 +97,7 @@ def get_openai_response(message, history=None, function_result=None):
             })
         
         # Define available functions
+        # Define available functions
         functions = [
             {
                 "name": "sls_details_variance",
@@ -117,9 +118,43 @@ def get_openai_response(message, history=None, function_result=None):
                     "type": "object",
                     "properties": {}
                 }
+            },
+            {
+                "name": "get_6g_status",
+                "description": "Get the status of the FR2052a (6G) batch process for a specific date",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "cob_date": {"type": "string", "description": "The COB date in MM-DD-YYYY format"},
+                        "table_name": {"type": "string", "description": "Optional: Specific table name or BPF ID to check"}
+                    },
+                    "required": ["cob_date"]
+                }
             }
         ]
-        
+#        functions = [
+#            {
+#                "name": "sls_details_variance",
+#                "description": "Calculate variance for SLS details between two dates",
+#                "parameters": {
+#                    "type": "object",
+#                    "properties": {
+#                        "date1": {"type": "string", "description": "First date in format YYYY-MM-DD"},
+#                        "date2": {"type": "string", "description": "Second date in format YYYY-MM-DD"}
+#                    },
+#                    "required": ["date1", "date2"]
+#                }
+#            },
+#            {
+#                "name": "time_remaining",
+#                "description": "Get current time and time remaining until EOD (5PM EST)",
+#                "parameters": {
+#                    "type": "object",
+#                    "properties": {}
+#                }
+#            }
+#        ]
+
         # Call Azure OpenAI API
         logger.debug("Calling OpenAI API...")
         response = client.chat.completions.create(
