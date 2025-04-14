@@ -52,11 +52,11 @@ function ChatMessage({ message }) {
               </div>
               <div>
                 <p className="text-xs text-gray-500">SLS Lines</p>
-                <p className="text-sm font-medium">{summary.total_lines} total / {summary.lines_with_variance} with variance</p>
+                <p className="text-sm font-medium">{summary.total_combinations} total / {summary.combinations_with_variance} with variance</p>
               </div>
             </div>
-            <div className={`mt-3 p-2 rounded-md ${summary.threshold_crossed ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"} text-sm font-medium text-center`}>
-              {summary.threshold_crossed ? "⚠️ Significant variance detected" : "✓ No significant variance"}
+            <div className={`mt-3 p-2 rounded-md ${summary.combinations_with_variance > 0 ? "bg-red-100 text-red-800" : "bg-green-100 text-green-800"} text-sm font-medium text-center`}>
+              {summary.combinations_with_variance > 0 ? "⚠️ Significant variance detected" : "✓ No significant variance"}
             </div>
           </div>
           
@@ -97,6 +97,91 @@ function ChatMessage({ message }) {
                   Showing 8 of {variance_data.length} rows
                 </div>
               )}
+            </div>
+          )}
+        </div>
+      );
+    }
+    
+    if (data.name === 'get_6g_status') {
+      const result = data.result;
+      
+      if (result.error) {
+        return <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">{result.error}</div>;
+      }
+      
+      return (
+        <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-blue-50 p-4 border-b border-blue-100">
+            <h3 className="text-md font-semibold text-blue-800">
+              {result.process_name} ({result.process_alias}) Status
+            </h3>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div>
+                <p className="text-xs text-gray-500">COB Date</p>
+                <p className="text-sm font-medium">{result.cob_date}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Completion</p>
+                <p className="text-sm font-medium">{result.tables_completed} of {result.total_tables} tables ({result.completion_percentage}%)</p>
+              </div>
+            </div>
+            <div className="mt-3">
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div 
+                  className={`h-2.5 rounded-full ${result.completion_percentage === 100 ? 'bg-green-500' : 'bg-blue-500'}`} 
+                  style={{ width: `${result.completion_percentage}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+          
+          {result.tables && result.tables.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Table Name</th>
+                    <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">BPF ID</th>
+                    <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">End Time</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Duration (min)</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {result.tables.map((table, index) => (
+                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-800">
+                        {table.name}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">
+                        {table.bpf_id}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          table.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                        }`}>
+                          {table.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.start_time}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.end_time}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.duration_minutes !== null ? table.duration_minutes : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4 text-center text-sm text-gray-500">
+              No completed tables found for this COB date.
             </div>
           )}
         </div>
