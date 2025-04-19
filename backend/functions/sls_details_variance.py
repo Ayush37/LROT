@@ -4,218 +4,471 @@ import pyodbc
 import os
 import traceback
 import logging
+from datetime import datetime
 from functions.function_registry import register_function
 from config import Config
 
 logger = logging.getLogger(__name__)
 
-def sls_details_variance(date1, date2):
+def sls_details_variance(date1, date2, product_identifiers=None):
     """
-    Calculate variance for SLS details between two dates.
+    Perform comprehensive variance analysis for SLS details between two dates.
     
     Args:
         date1 (str): First date in format YYYY-MM-DD
         date2 (str): Second date in format YYYY-MM-DD
+        product_identifiers (str, optional): Comma-separated list of product identifiers (e.g., 'OS-09,OS-10')
         
     Returns:
-        dict: Variance information
+        dict: Comprehensive variance information including analysis from multiple tables
     """
     try:
-        # Construct query to get data for both dates
-        query = f"""
-        SELECT 
-            sls.lri_position_str_cob_date as cob_date,
-            sls.lri_position_str_sls_line_no as sls_line_number,
-            rcl.context_name,
-            COUNT(*) AS no_of_rows,
-            ROUND(SUM(sls.std_rptg_meas_amt_base)) AS amt_reporting_measure,
-            ROUND(SUM(sls.ccf_flow_amt_base)) AS amt_cof_flow,
-            ROUND(SUM(sls.curr_mkt_value_clean_base)) AS amt_curr_mkt_value
-        FROM lri_base.sls_details_prdl sls
-        LEFT JOIN lri_base.result_context_list rcl ON sls.context_key = rcl.context_key
-        WHERE sls.context_key IN (
-            SELECT context_key
-            FROM lri_base.result_context_list rcl
-            WHERE rcl.cob_date IN ('{date1}', '{date2}')
-            AND rcl.run_type = 'EOD'
-            AND rcl.snapshot_label = 'FINAL'
-            AND rcl.ctx_status = 'COMPLETED'
-            AND rcl.service_name = 'SLS_REP_IMPALA'
-            AND context_name NOT IN ('AWS_FNO_COLLATERAL_SLS_IC', 'AWS_DIVIDENDS_SLS_AND_IC')
-        )
-        AND sls.snapshot_label = 'FINAL'
-        GROUP BY 1, 2, 3
-        """
+        # Parse and format dates
+        date1_obj = datetime.strptime(date1, '%Y-%m-%d')
+        date2_obj = datetime.strptime(date2, '%Y-%m-%d')
+        date1_formatted = date1_obj.strftime('%Y-%m-%d')
+        date2_formatted = date2_obj.strftime('%Y-%m-%d')
         
-        logger.debug(f"Executing query: {query}")
+        # Parse product identifiers if provided
+        product_ids = []
+        if product_identifiers:
+            product_ids = [pid.strip() for pid in product_identifiers.split(',')]
         
-        # Connect to Impala using pyodbc
-        conn_string = "DSN=IMPALA_LRI_DR"  # Using the DSN from the example
-        cert = '/etc/security/certs/JPMCROOTCA.pem'
+        # Step 1: Check variance in reporting table
+        reporting_variance = analyze_reporting_table(date1_formatted, date2_formatted, product_ids)
         
-        try:
-            conn = pyodbc.connect(
-                conn_string, 
-                ssl=1, 
-                AllowSelfSignedServerCert=1, 
-                TrustedCerts=cert, 
-                autocommit=True
-            )
-            
-            # Execute query and get results as DataFrame
-            df = pd.read_sql_query(query, conn)
-            conn.close()
-            
-            logger.debug(f"Query returned {len(df)} rows")
-            
-            # Process the data to calculate variances
-            # First, verify we have data for both dates
-            if date1 not in df['cob_date'].values or date2 not in df['cob_date'].values:
-                return {
-                    "error": "Missing data for one or both dates",
-                    "details": f"Data for {date1} and/or {date2} not found in the results."
-                }
-            
-            # Create separate dataframes for each date
-            df1 = df[df['cob_date'] == date1]
-            df2 = df[df['cob_date'] == date2]
-            
-            # Create a unique identifier for each sls_line_number + context_name combination
-            df1['composite_key'] = df1['sls_line_number'] + '|' + df1['context_name']
-            df2['composite_key'] = df2['sls_line_number'] + '|' + df2['context_name']
-            
-            # Set the composite_key as index for both dataframes
-            df1.set_index('composite_key', inplace=True)
-            df2.set_index('composite_key', inplace=True)
-            
-            # Get the list of composite keys that appear in both dates
-            common_keys = list(set(df1.index) & set(df2.index))
-            
-            # Initialize results
-            variance_data = []
-            
-            # Calculate variance for each sls_line_number + context_name combination
-            for key in common_keys:
-                row1 = df1.loc[key]
-                row2 = df2.loc[key]
-                
-                # Split the composite key back to components
-                sls_line_number, context_name = key.split('|')
-                
-                # Calculate variance for each metric
-                variance_row = {
-                    'sls_line_number': sls_line_number,
-                    'context_name': context_name,
-                    'amt_reporting_measure_date1': float(row1['amt_reporting_measure']),
-                    'amt_reporting_measure_date2': float(row2['amt_reporting_measure']),
-                    'amt_cof_flow_date1': float(row1['amt_cof_flow']),
-                    'amt_cof_flow_date2': float(row2['amt_cof_flow']),
-                    'amt_curr_mkt_value_date1': float(row1['amt_curr_mkt_value']),
-                    'amt_curr_mkt_value_date2': float(row2['amt_curr_mkt_value']),
-                }
-                
-                # Calculate absolute variance
-                variance_row['amt_reporting_measure_variance'] = variance_row['amt_reporting_measure_date2'] - variance_row['amt_reporting_measure_date1']
-                variance_row['amt_cof_flow_variance'] = variance_row['amt_cof_flow_date2'] - variance_row['amt_cof_flow_date1']
-                variance_row['amt_curr_mkt_value_variance'] = variance_row['amt_curr_mkt_value_date2'] - variance_row['amt_curr_mkt_value_date1']
-                
-                # Calculate percentage variance (avoid division by zero)
-                variance_row['amt_reporting_measure_pct'] = (
-                    (variance_row['amt_reporting_measure_variance'] / variance_row['amt_reporting_measure_date1']) * 100 
-                    if variance_row['amt_reporting_measure_date1'] != 0 else 0
-                )
-                
-                variance_row['amt_cof_flow_pct'] = (
-                    (variance_row['amt_cof_flow_variance'] / variance_row['amt_cof_flow_date1']) * 100 
-                    if variance_row['amt_cof_flow_date1'] != 0 else 0
-                )
-                
-                variance_row['amt_curr_mkt_value_pct'] = (
-                    (variance_row['amt_curr_mkt_value_variance'] / variance_row['amt_curr_mkt_value_date1']) * 100 
-                    if variance_row['amt_curr_mkt_value_date1'] != 0 else 0
-                )
-                
-                # Check if any variance exceeds threshold (10%)
-                threshold = 10.0
-                variance_row['has_significant_variance'] = (
-                    abs(variance_row['amt_reporting_measure_pct']) > threshold or
-                    abs(variance_row['amt_cof_flow_pct']) > threshold or
-                    abs(variance_row['amt_curr_mkt_value_pct']) > threshold
-                )
-                
-                variance_data.append(variance_row)
-            
-            # Also identify unique entries that exist in only one date
-            only_in_date1 = list(set(df1.index) - set(df2.index))
-            only_in_date2 = list(set(df2.index) - set(df1.index))
-            
-            date1_only_data = []
-            for key in only_in_date1:
-                row = df1.loc[key]
-                sls_line_number, context_name = key.split('|')
-                date1_only_data.append({
-                    'sls_line_number': sls_line_number,
-                    'context_name': context_name,
-                    'amt_reporting_measure': float(row['amt_reporting_measure']),
-                    'amt_cof_flow': float(row['amt_cof_flow']),
-                    'amt_curr_mkt_value': float(row['amt_curr_mkt_value'])
-                })
-            
-            date2_only_data = []
-            for key in only_in_date2:
-                row = df2.loc[key]
-                sls_line_number, context_name = key.split('|')
-                date2_only_data.append({
-                    'sls_line_number': sls_line_number,
-                    'context_name': context_name,
-                    'amt_reporting_measure': float(row['amt_reporting_measure']),
-                    'amt_cof_flow': float(row['amt_cof_flow']),
-                    'amt_curr_mkt_value': float(row['amt_curr_mkt_value'])
-                })
-            
-            # Create summary statistics
-            significant_variances = [row for row in variance_data if row['has_significant_variance']]
-            
-            summary = {
+        # If no significant variance found in reporting, return early
+        if not reporting_variance['sls_lines_with_variance']:
+            return {
+                "success": True,
                 "date1": date1,
                 "date2": date2,
-                "total_combinations": len(common_keys),
-                "combinations_with_variance": len(significant_variances),
-                "threshold_percentage": threshold,
-                "only_in_date1_count": len(only_in_date1),
-                "only_in_date2_count": len(only_in_date2),
-                "largest_amt_reporting_measure_variance": max(variance_data, key=lambda x: abs(x['amt_reporting_measure_variance'])) if variance_data else None,
-                "largest_amt_cof_flow_variance": max(variance_data, key=lambda x: abs(x['amt_cof_flow_variance'])) if variance_data else None,
-                "largest_amt_curr_mkt_value_variance": max(variance_data, key=lambda x: abs(x['amt_curr_mkt_value_variance'])) if variance_data else None,
+                "message": "No significant variance found in the reporting table.",
+                "product_identifiers": product_ids,
+                "reporting_table_analysis": reporting_variance,
+                "base_data_analysis": None,
+                "sls_details_analysis": None
             }
-            
-            # Sort the variance data by significance and limit to most significant ones
-            variance_data.sort(key=lambda x: max(
-                abs(x['amt_reporting_measure_pct']), 
-                abs(x['amt_cof_flow_pct']), 
-                abs(x['amt_curr_mkt_value_pct'])
-            ), reverse=True)
-            
-            return {
-                "summary": summary,
-                "variance_data": variance_data[:20],  # Return only top 20 most significant variances
-                "unique_to_date1": date1_only_data[:5],  # First 5 entries unique to date1
-                "unique_to_date2": date2_only_data[:5],  # First 5 entries unique to date2
-                "all_variance_count": len(variance_data)
-            }
-            
-        except Exception as e:
-            logger.error(f"Database connection error: {str(e)}")
-            logger.error(traceback.format_exc())
-            return {
-                "error": f"Database connection error: {str(e)}",
-                "details": "Error connecting to Impala database or processing results."
-            }
+        
+        # Step 2: Check variance in base data for SLS lines with significant variance
+        sls_lines_with_variance = reporting_variance['sls_lines_with_variance']
+        base_data_variance = analyze_base_data_table(date1_formatted, date2_formatted, sls_lines_with_variance)
+        
+        # Step 3: Check variance in SLS details table for the same SLS lines
+        sls_details_variance = analyze_sls_details_table(date1_formatted, date2_formatted, sls_lines_with_variance)
+        
+        # Compile all results
+        return {
+            "success": True,
+            "date1": date1,
+            "date2": date2,
+            "product_identifiers": product_ids,
+            "reporting_table_analysis": reporting_variance,
+            "base_data_analysis": base_data_variance,
+            "sls_details_analysis": sls_details_variance
+        }
         
     except Exception as e:
         logger.error(f"Error in sls_details_variance: {str(e)}")
         logger.error(traceback.format_exc())
-        return {"error": str(e)}
+        return {
+            "success": False,
+            "error": str(e),
+            "date1": date1,
+            "date2": date2,
+            "product_identifiers": product_identifiers
+        }
+
+def analyze_reporting_table(date1, date2, product_ids):
+    """
+    Analyze the reporting table to find SLS lines with significant variance.
+    
+    Args:
+        date1 (str): First date in format YYYY-MM-DD
+        date2 (str): Second date in format YYYY-MM-DD
+        product_ids (list): List of product identifiers to check
+        
+    Returns:
+        dict: Analysis results from the reporting table
+    """
+    try:
+        # Build the product_identifier filter if product_ids are provided
+        product_filter = ""
+        if product_ids:
+            product_filter = f"AND product_identifier IN ({', '.join([f\"'{pid}'\" for pid in product_ids])})"
+        
+        # Construct query for reporting table
+        query = f"""
+        SELECT sls.context_key, sls.cob_date, sls_line_number, basedata_context_key, sls.snapshot_label, 
+               rcl.context_name, COUNT(*) AS count,
+               SUM(ccf_flow_amt) AS ccf_flow_amt,
+               SUM(xml_collateral_value_usd) AS xml_collateral_value_usd,
+               SUM(xml_market_value_usd) AS xml_market_value_usd,
+               SUM(xml_maturity_value_usd) AS xml_maturity_value_usd
+        FROM lri_base.us_reg_2052a_reporting sls
+        LEFT JOIN lri_base.result_context_list rcl ON sls.context_key = rcl.context_key
+        WHERE sls.context_key IN (
+            SELECT rcl.context_key FROM lri_base.result_context_list rcl
+            WHERE rcl.cob_date IN ('{date1}', '{date2}')
+            AND rcl.run_type = 'EOD'
+            AND rcl.snapshot_label = 'FINAL'
+            AND rcl.service_name IN ('FR2052A_REPORT')
+        )
+        {product_filter}
+        GROUP BY 1, 2, 3, 4, 5, 6
+        ORDER BY 3, 2, 1
+        """
+        
+        logger.debug(f"Executing reporting table query: {query}")
+        
+        # Connect to Impala using pyodbc
+        conn_string = "DSN=IMPALA_LRI_DR"
+        cert = '/etc/security/certs/JPMCROOTCA.pem'
+        
+        conn = pyodbc.connect(
+            conn_string, 
+            ssl=1, 
+            AllowSelfSignedServerCert=1, 
+            TrustedCerts=cert, 
+            autocommit=True
+        )
+        
+        # Execute query and get results as DataFrame
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        
+        logger.debug(f"Query returned {len(df)} rows")
+        
+        # Perform variance analysis
+        analysis_results = analyze_variance_in_dataframe(
+            df, 
+            'sls_line_number', 
+            'ccf_flow_amt', 
+            date1, 
+            date2, 
+            context_key_column='context_key',
+            context_name_column='context_name'
+        )
+        
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing reporting table: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
+def analyze_base_data_table(date1, date2, sls_lines):
+    """
+    Analyze the base data table for SLS lines with significant variance.
+    
+    Args:
+        date1 (str): First date in format YYYY-MM-DD
+        date2 (str): Second date in format YYYY-MM-DD
+        sls_lines (list): List of SLS line numbers to check
+        
+    Returns:
+        dict: Analysis results from the base data table
+    """
+    try:
+        if not sls_lines:
+            return {
+                "message": "No SLS lines to analyze in base data table",
+                "sls_lines_analyzed": [],
+                "variance_data": [],
+                "missing_pairs": []
+            }
+        
+        # Build the SLS line filter
+        sls_line_filter = f"AND sls.lri_position_str_sls_line_no IN ({', '.join([f\"'{line}'\" for line in sls_lines])})"
+        
+        # Construct query for base data table
+        query = f"""
+        SELECT sls.context_key, sls.cob_date, sls.lri_position_str_sls_line_no, 
+               sls.sls_context_key, sls.snapshot_label, rcl.context_name, 
+               COUNT(*) AS count, SUM(ccf_flow_amt) AS ccf_flow_amt
+        FROM lri_base.us_reg_base_data sls
+        LEFT JOIN lri_base.result_context_list rcl ON sls.context_key = rcl.context_key
+        WHERE sls.context_key IN (
+            SELECT rcl.context_key FROM lri_base.result_context_list rcl
+            WHERE rcl.cob_date IN ('{date1}', '{date2}')
+            AND rcl.run_type = 'EOD'
+            AND rcl.snapshot_label = 'FINAL'
+            AND rcl.service_name IN ('FR2052A_REPORT', 'SLS_REP.FR2052A_BASE_SUPPLY')
+        )
+        {sls_line_filter}
+        AND sls.snapshot_label IN ('FINAL')
+        GROUP BY 1, 2, 3, 4, 5, 6
+        ORDER BY 3, 2, 1
+        """
+        
+        logger.debug(f"Executing base data table query: {query}")
+        
+        # Connect to Impala using pyodbc
+        conn_string = "DSN=IMPALA_LRI_DR"
+        cert = '/etc/security/certs/JPMCROOTCA.pem'
+        
+        conn = pyodbc.connect(
+            conn_string, 
+            ssl=1, 
+            AllowSelfSignedServerCert=1, 
+            TrustedCerts=cert, 
+            autocommit=True
+        )
+        
+        # Execute query and get results as DataFrame
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        
+        logger.debug(f"Base data query returned {len(df)} rows")
+        
+        # Perform variance analysis
+        analysis_results = analyze_variance_in_dataframe(
+            df, 
+            'lri_position_str_sls_line_no', 
+            'ccf_flow_amt', 
+            date1, 
+            date2, 
+            context_key_column='context_key',
+            context_name_column='context_name'
+        )
+        
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing base data table: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
+def analyze_sls_details_table(date1, date2, sls_lines):
+    """
+    Analyze the SLS details table for SLS lines with significant variance.
+    
+    Args:
+        date1 (str): First date in format YYYY-MM-DD
+        date2 (str): Second date in format YYYY-MM-DD
+        sls_lines (list): List of SLS line numbers to check
+        
+    Returns:
+        dict: Analysis results from the SLS details table
+    """
+    try:
+        if not sls_lines:
+            return {
+                "message": "No SLS lines to analyze in SLS details table",
+                "sls_lines_analyzed": [],
+                "variance_data": [],
+                "missing_pairs": []
+            }
+        
+        # Build the SLS line filter
+        sls_line_filter = f"AND sls.lri_position_str_sls_line_no IN ({', '.join([f\"'{line}'\" for line in sls_lines])})"
+        
+        # Construct query for SLS details table
+        query = f"""
+        SELECT sls.context_key, sls.lri_position_str_cob_date, sls.lri_position_str_sls_line_no, 
+               sls.snapshot_label, rcl.context_name, COUNT(*) AS count,
+               SUM(ccf_flow_amt_base) AS ccf_flow_amt
+        FROM lri_base.sls_details_prdl sls
+        LEFT JOIN lri_base.result_context_list rcl ON sls.context_key = rcl.context_key
+        WHERE sls.context_key IN (
+            SELECT rcl.context_key FROM lri_base.result_context_list rcl
+            WHERE rcl.cob_date IN ('{date1}', '{date2}')
+            AND rcl.run_type = 'EOD'
+            AND rcl.snapshot_label = 'FINAL'
+            AND rcl.service_name IN ('SLS_REP_IMPALA')
+        )
+        {sls_line_filter}
+        AND sls.snapshot_label IN ('FINAL')
+        GROUP BY 1, 2, 3, 4, 5
+        ORDER BY 3, 2, 1
+        """
+        
+        logger.debug(f"Executing SLS details table query: {query}")
+        
+        # Connect to Impala using pyodbc
+        conn_string = "DSN=IMPALA_LRI_DR"
+        cert = '/etc/security/certs/JPMCROOTCA.pem'
+        
+        conn = pyodbc.connect(
+            conn_string, 
+            ssl=1, 
+            AllowSelfSignedServerCert=1, 
+            TrustedCerts=cert, 
+            autocommit=True
+        )
+        
+        # Execute query and get results as DataFrame
+        df = pd.read_sql_query(query, conn)
+        conn.close()
+        
+        logger.debug(f"SLS details query returned {len(df)} rows")
+        
+        # Convert date column to match expected format
+        if 'lri_position_str_cob_date' in df.columns:
+            df['cob_date'] = df['lri_position_str_cob_date']
+        
+        # Perform variance analysis
+        analysis_results = analyze_variance_in_dataframe(
+            df, 
+            'lri_position_str_sls_line_no', 
+            'ccf_flow_amt', 
+            date1, 
+            date2, 
+            context_key_column='context_key',
+            context_name_column='context_name'
+        )
+        
+        return analysis_results
+        
+    except Exception as e:
+        logger.error(f"Error analyzing SLS details table: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
+
+def analyze_variance_in_dataframe(df, sls_line_column, amount_column, date1, date2, context_key_column='context_key', context_name_column='context_name'):
+    """
+    Generic function to analyze variance in a DataFrame.
+    
+    Args:
+        df (pd.DataFrame): DataFrame with the query results
+        sls_line_column (str): Column name for SLS line number
+        amount_column (str): Column name for the amount to analyze
+        date1 (str): First date
+        date2 (str): Second date
+        context_key_column (str): Column name for context key
+        context_name_column (str): Column name for context name
+        
+    Returns:
+        dict: Analysis results
+    """
+    try:
+        if df.empty:
+            return {
+                "message": "No data found for analysis",
+                "sls_lines_analyzed": [],
+                "variance_data": [],
+                "missing_pairs": []
+            }
+        
+        # Create a unique pair identifier for SLS line and context name
+        df['pair_id'] = df[sls_line_column] + '|' + df[context_name_column]
+        
+        # Split data by date
+        df1 = df[df['cob_date'] == date1].copy()
+        df2 = df[df['cob_date'] == date2].copy()
+        
+        # Check if we have data for both dates
+        if df1.empty or df2.empty:
+            missing_dates = []
+            if df1.empty:
+                missing_dates.append(date1)
+            if df2.empty:
+                missing_dates.append(date2)
+                
+            return {
+                "message": f"Missing data for dates: {', '.join(missing_dates)}",
+                "sls_lines_analyzed": [],
+                "variance_data": [],
+                "missing_pairs": []
+            }
+        
+        # Find unique SLS lines
+        all_sls_lines = set(df[sls_line_column].dropna().unique())
+        
+        # Find all unique pairs
+        all_pairs = set(df['pair_id'].dropna().unique())
+        pairs_in_df1 = set(df1['pair_id'].dropna().unique())
+        pairs_in_df2 = set(df2['pair_id'].dropna().unique())
+        
+        # Identify missing pairs
+        missing_from_df1 = pairs_in_df2 - pairs_in_df1
+        missing_from_df2 = pairs_in_df1 - pairs_in_df2
+        
+        # Prepare missing pairs data
+        missing_pairs = []
+        
+        for pair in missing_from_df1:
+            pair_data = df2[df2['pair_id'] == pair].iloc[0]
+            missing_pairs.append({
+                "sls_line": pair_data[sls_line_column],
+                "context_name": pair_data[context_name_column],
+                "context_key": pair_data[context_key_column],
+                "missing_from": date1,
+                "present_in": date2,
+                "amount": float(pair_data[amount_column]) if pd.notna(pair_data[amount_column]) else None
+            })
+            
+        for pair in missing_from_df2:
+            pair_data = df1[df1['pair_id'] == pair].iloc[0]
+            missing_pairs.append({
+                "sls_line": pair_data[sls_line_column],
+                "context_name": pair_data[context_name_column],
+                "context_key": pair_data[context_key_column],
+                "missing_from": date2,
+                "present_in": date1,
+                "amount": float(pair_data[amount_column]) if pd.notna(pair_data[amount_column]) else None
+            })
+        
+        # Analyze variance for pairs present in both dates
+        common_pairs = pairs_in_df1.intersection(pairs_in_df2)
+        variance_data = []
+        sls_lines_with_variance = set()
+        
+        for pair in common_pairs:
+            row1 = df1[df1['pair_id'] == pair].iloc[0]
+            row2 = df2[df2['pair_id'] == pair].iloc[0]
+            
+            # Skip pairs with null amounts
+            if pd.isna(row1[amount_column]) or pd.isna(row2[amount_column]):
+                continue
+                
+            amount1 = float(row1[amount_column])
+            amount2 = float(row2[amount_column])
+            
+            # Calculate absolute and percentage variance
+            absolute_variance = amount2 - amount1
+            
+            # Avoid division by zero
+            if amount1 == 0:
+                if amount2 == 0:
+                    pct_variance = 0
+                else:
+                    pct_variance = float('inf')
+            else:
+                pct_variance = (absolute_variance / abs(amount1)) * 100
+            
+            # Check if variance exceeds threshold (10%)
+            if abs(pct_variance) >= 10:
+                sls_line = row1[sls_line_column]
+                sls_lines_with_variance.add(sls_line)
+                
+                variance_data.append({
+                    "sls_line": sls_line,
+                    "context_name": row1[context_name_column],
+                    "context_key_date1": row1[context_key_column],
+                    "context_key_date2": row2[context_key_column],
+                    "amount_date1": amount1,
+                    "amount_date2": amount2,
+                    "absolute_variance": absolute_variance,
+                    "percentage_variance": pct_variance,
+                    "pair_id": pair
+                })
+        
+        # Sort variance data by absolute variance
+        variance_data.sort(key=lambda x: abs(x['percentage_variance']), reverse=True)
+        
+        return {
+            "message": f"Analysis completed. Found {len(variance_data)} pairs with significant variance (>=10%).",
+            "sls_lines_analyzed": list(all_sls_lines),
+            "sls_lines_with_variance": list(sls_lines_with_variance),
+            "variance_data": variance_data,
+            "missing_pairs": missing_pairs
+        }
+        
+    except Exception as e:
+        logger.error(f"Error in analyze_variance_in_dataframe: {str(e)}")
+        logger.error(traceback.format_exc())
+        raise
 
 # Register the function
 register_function("sls_details_variance", sls_details_variance)

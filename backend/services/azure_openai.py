@@ -99,6 +99,19 @@ def get_openai_response(message, history=None, function_result=None):
         # Define available functions
         # Define available functions
         functions = [
+        {   
+            "name": "sls_details_variance",
+            "description": "Calculate comprehensive variance or drops for 6G (2052a)data between two dates",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "date1": {"type": "string", "description": "First date in format YYYY-MM-DD"},
+                    "date2": {"type": "string", "description": "Second date in format YYYY-MM-DD"},
+                    "product_identifiers": {"type": "string", "description": "Optional: Comma-separated list of product identifiers (e.g., 'OS-09,OS-10')"}
+                },
+                "required": ["date1", "date2"]
+            }
+        },
             {
                 "name": "sls_details_variance",
                 "description": "Calculate variance for SLS details between two dates",

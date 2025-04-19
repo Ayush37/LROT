@@ -13,6 +13,8 @@ function ChatInterface() {
   const [showDateSelector, setShowDateSelector] = useState(false);
   const [selectedDates, setSelectedDates] = useState({ date1: null, date2: null });
   const [error, setError] = useState(null);
+  const [awaitingProductIds, setAwaitingProductIds] = useState(false);
+  const [productIdentifiers, setProductIdentifiers] = useState('');
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -39,6 +41,34 @@ function ChatInterface() {
     console.log("User message:", userMessage);
     setInput('');
     
+    // Check if waiting for product identifiers
+    if (awaitingProductIds) {
+      console.log("Received product identifiers:", userMessage);
+      
+      // Reset the flag
+      setAwaitingProductIds(false);
+      
+      // Get product identifiers (or set to empty string if "all")
+      const productIds = userMessage.toLowerCase() === 'all' ? '' : userMessage;
+      
+      // Add user message to chat
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'user', 
+        content: userMessage 
+      }]);
+      
+      // Show confirmation and date selector
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'assistant', 
+        content: `Thank you. Now please select two dates for comparison to check 6G variance with product identifiers: ${productIds || 'all'}` 
+      }]);
+      
+      // Store product identifiers for later use and show date selector
+      setProductIdentifiers(productIds);
+      setShowDateSelector(true);
+      return;
+    }
+    
     // Add user message to chat
     console.log("Adding user message to chat");
     setMessages(prevMessages => [...prevMessages, { 
@@ -64,6 +94,23 @@ function ChatInterface() {
           content: 'To calculate SLS details variance, please select two dates for comparison.' 
         }]);
         
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check for 6G variance queries
+      if (userMessage.toLowerCase().includes('6g variance') || 
+          (userMessage.toLowerCase().includes('variance') && userMessage.toLowerCase().includes('6g'))) {
+        console.log("Message is related to 6G variance");
+        
+        // Show product identifiers input dialog
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'assistant', 
+          content: 'To check for 6G variance, please provide the product identifiers you want to analyze (comma-separated, e.g., "OS-09,OS-10"). If you want to check all, just type "all".' 
+        }]);
+        
+        // Set a flag to indicate we're waiting for product identifiers
+        setAwaitingProductIds(true);
         setIsLoading(false);
         return;
       }
@@ -127,82 +174,86 @@ function ChatInterface() {
   };
   
   const handleDateSelection = async (dates) => {
-  console.log("handleDateSelection called with dates:", dates);
-  setSelectedDates(dates);
-  setShowDateSelector(false);
-  
-  // Add dates message to chat
-  setMessages(prevMessages => [...prevMessages, { 
-    type: 'system', 
-    content: `Selected dates: ${dates.date1} and ${dates.date2}` 
-  }]);
-  
-  setIsLoading(true);
-  setError(null);
-  
-  try {
-    // Call backend function directly
-    console.log("Calling backend with SLS variance function");
+    console.log("handleDateSelection called with dates:", dates);
+    setSelectedDates(dates);
+    setShowDateSelector(false);
     
-    const apiUrl = `${process.env.REACT_APP_API_URL || 'http://172.24.98.189:5001'}/api/chat`;
-	  
-    const requestData = {
-      message: 'Calculate the variance for SLS details',
-      function_call: {
-        name: 'sls_details_variance',
-        arguments: {
-          date1: dates.date1,
-          date2: dates.date2
+    // Add dates message to chat
+    setMessages(prevMessages => [...prevMessages, { 
+      type: 'system', 
+      content: `Selected dates: ${dates.date1} and ${dates.date2}` 
+    }]);
+    
+    setIsLoading(true);
+    setError(null);
+    
+    try {
+      // Call backend with SLS variance function
+      console.log("Calling backend with SLS variance function");
+      
+      const apiUrl = `${process.env.REACT_APP_API_URL || 'http://172.24.98.189:5001'}/api/chat`;
+      
+      const requestData = {
+        message: 'Calculate the variance for SLS details',
+        function_call: {
+          name: 'sls_details_variance',
+          arguments: {
+            date1: dates.date1,
+            date2: dates.date2,
+            product_identifiers: productIdentifiers // Include the product identifiers
+          }
         }
+      };
+      
+      console.log("Sending request to:", apiUrl);
+      console.log("Request data:", JSON.stringify(requestData, null, 2));
+      
+      const response = await axios.post(apiUrl, requestData);
+      
+      console.log("Response received:", response);
+      console.log("Response data:", JSON.stringify(response.data, null, 2));
+      
+      if (!response.data || !response.data.response) {
+        throw new Error("Invalid response format from server");
       }
-    };
-    
-    console.log("Sending request to:", apiUrl);
-    console.log("Request data:", JSON.stringify(requestData, null, 2));
-    
-    const response = await axios.post(apiUrl, requestData);
-    
-    console.log("Response received:", response);
-    console.log("Response data:", JSON.stringify(response.data, null, 2));
-    
-    if (!response.data || !response.data.response) {
-      throw new Error("Invalid response format from server");
+      
+      // Add response to chat
+      console.log("Adding assistant response to chat with function results");
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'assistant', 
+        content: response.data.response.content,
+        data: response.data.response.function_call ? response.data.response : null
+      }]);
+      
+      // Reset product identifiers after use
+      setProductIdentifiers('');
+      
+    } catch (error) {
+      console.error("Error in handleDateSelection:", error);
+      
+      // Log detailed error information
+      if (error.response) {
+        console.error("Error response data:", error.response.data);
+        console.error("Error response status:", error.response.status);
+        console.error("Error response headers:", error.response.headers);
+        setError(`Server error: ${error.response.status}. ${JSON.stringify(error.response.data)}`);
+      } else if (error.request) {
+        console.error("Error request:", error.request);
+        setError("No response received from server. Check if the backend is running.");
+      } else {
+        console.error("Error message:", error.message);
+        setError(`Error: ${error.message}`);
+      }
+      
+      // Add error message to chat
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'assistant', 
+        content: `Sorry, there was an error calculating the variance. Please try again. ${error.message}` 
+      }]);
     }
     
-    // Add response to chat
-    console.log("Adding assistant response to chat with function results");
-    setMessages(prevMessages => [...prevMessages, { 
-      type: 'assistant', 
-      content: response.data.response.content,
-      data: response.data.response.function_call ? response.data.response : null
-    }]);
-    
-  } catch (error) {
-    console.error("Error in handleDateSelection:", error);
-    
-    // Log detailed error information
-    if (error.response) {
-      console.error("Error response data:", error.response.data);
-      console.error("Error response status:", error.response.status);
-      console.error("Error response headers:", error.response.headers);
-      setError(`Server error: ${error.response.status}. ${JSON.stringify(error.response.data)}`);
-    } else if (error.request) {
-      console.error("Error request:", error.request);
-      setError("No response received from server. Check if the backend is running.");
-    } else {
-      console.error("Error message:", error.message);
-      setError(`Error: ${error.message}`);
-    }
-    
-    // Add error message to chat
-    setMessages(prevMessages => [...prevMessages, { 
-      type: 'assistant', 
-      content: `Sorry, there was an error calculating the variance. Please try again. ${error.message}` 
-    }]);
-  }
-  
-  setIsLoading(false);
-};
+    setIsLoading(false);
+  };
   
   const handleKeyPress = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -255,8 +306,15 @@ function ChatInterface() {
                 className="bg-white border border-gray-300 rounded-xl p-4 hover:bg-gray-50 transition-colors text-left shadow-sm"
               >
                 <h3 className="font-medium text-gray-900">Check 6G Batch Status</h3>
-               <p className="text-sm text-gray-500 mt-1">Get current status of FR2052a (6G) batch process</p>
-              </button>		
+                <p className="text-sm text-gray-500 mt-1">Get current status of FR2052a (6G) batch process</p>
+              </button>
+              <button 
+                onClick={() => setInput('Can you check if there is a variance in 6G for today?')}
+                className="bg-white border border-gray-300 rounded-xl p-4 hover:bg-gray-50 transition-colors text-left shadow-sm"
+              >
+                <h3 className="font-medium text-gray-900">Analyze 6G Variance</h3>
+                <p className="text-sm text-gray-500 mt-1">Check for variances in 6G data across tables</p>
+              </button>
             </div>
           </div>
         ) : (
