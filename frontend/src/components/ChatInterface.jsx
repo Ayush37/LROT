@@ -15,6 +15,9 @@ function ChatInterface() {
   const [error, setError] = useState(null);
   const [awaitingProductIds, setAwaitingProductIds] = useState(false);
   const [productIdentifiers, setProductIdentifiers] = useState('');
+  const [awaitingAdjustmentType, setAwaitingAdjustmentType] = useState(false);
+  const [awaitingDmatIds, setAwaitingDmatIds] = useState(false);
+  const [adjustmentType, setAdjustmentType] = useState('');
   
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
@@ -69,6 +72,128 @@ function ChatInterface() {
       return;
     }
     
+    // Check if waiting for adjustment type
+    if (awaitingAdjustmentType) {
+      console.log("Received adjustment type:", userMessage);
+      
+      // Validate adjustment type
+      const type = userMessage.toUpperCase().trim();
+      if (type !== 'MDU' && type !== 'MSDU') {
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'user', 
+          content: userMessage 
+        }]);
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'assistant', 
+          content: 'Please select a valid adjustment type: either "MDU" or "MSDU".' 
+        }]);
+        return;
+      }
+      
+      // Reset flag and store adjustment type
+      setAwaitingAdjustmentType(false);
+      setAdjustmentType(type);
+      
+      // Add user message to chat
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'user', 
+        content: userMessage 
+      }]);
+      
+      // Ask for DMAT IDs
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'assistant', 
+        content: 'Please provide the DMAT IDs to sync. Enter them as comma-separated values (e.g., "2015305,2015306,2015307").' 
+      }]);
+      
+      setAwaitingDmatIds(true);
+      return;
+    }
+    
+    // Check if waiting for DMAT IDs
+    if (awaitingDmatIds) {
+      console.log("Received DMAT IDs:", userMessage);
+      
+      // Reset flag
+      setAwaitingDmatIds(false);
+      
+      // Add user message to chat
+      setMessages(prevMessages => [...prevMessages, { 
+        type: 'user', 
+        content: userMessage 
+      }]);
+      
+      setIsLoading(true);
+      setError(null);
+      
+      try {
+        // Call backend with sync adjustments function
+        console.log("Calling backend with sync adjustments function");
+        
+        const apiUrl = `${process.env.REACT_APP_API_URL || 'http://172.24.98.189:5001'}/api/chat`;
+        
+        const requestData = {
+          message: 'Sync adjustments',
+          function_call: {
+            name: 'sync_adjustments',
+            arguments: {
+              adjustment_type: adjustmentType,
+              dmat_ids: userMessage.trim()
+            }
+          }
+        };
+        
+        console.log("Sending request to:", apiUrl);
+        console.log("Request data:", JSON.stringify(requestData, null, 2));
+        
+        const response = await axios.post(apiUrl, requestData);
+        
+        console.log("Response received:", response);
+        console.log("Response data:", JSON.stringify(response.data, null, 2));
+        
+        if (!response.data || !response.data.response) {
+          throw new Error("Invalid response format from server");
+        }
+        
+        // Add response to chat
+        console.log("Adding assistant response to chat with function results");
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'assistant', 
+          content: response.data.response.content,
+          data: response.data.response.function_call ? response.data.response : null
+        }]);
+        
+        // Reset state
+        setAdjustmentType('');
+        
+      } catch (error) {
+        console.error("Error in sync adjustments:", error);
+        
+        // Log detailed error information
+        if (error.response) {
+          console.error("Error response data:", error.response.data);
+          console.error("Error response status:", error.response.status);
+          console.error("Error response headers:", error.response.headers);
+          setError(`Server error: ${error.response.status}. ${JSON.stringify(error.response.data)}`);
+        } else if (error.request) {
+          console.error("Error request:", error.request);
+          setError("No response received from server. Check if the backend is running.");
+        } else {
+          console.error("Error message:", error.message);
+          setError(`Error: ${error.message}`);
+        }
+        
+        // Add error message to chat
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'assistant', 
+          content: `Sorry, there was an error syncing the adjustments. Please try again. ${error.message}` 
+        }]);
+      }
+      
+      setIsLoading(false);
+      return;
+    }
+    
     // Add user message to chat
     console.log("Adding user message to chat");
     setMessages(prevMessages => [...prevMessages, { 
@@ -111,6 +236,23 @@ function ChatInterface() {
         
         // Set a flag to indicate we're waiting for product identifiers
         setAwaitingProductIds(true);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check for sync adjustments request
+      if (userMessage.toLowerCase().includes('sync') && userMessage.toLowerCase().includes('adjustment') || 
+          userMessage.toLowerCase().includes('clear') && userMessage.toLowerCase().includes('adjustment')) {
+        console.log("Message is related to sync adjustments");
+        
+        // Show adjustment type selection
+        setMessages(prevMessages => [...prevMessages, { 
+          type: 'assistant', 
+          content: 'To sync stuck adjustments, please select the type of adjustment:\n\n1. MDU\n2. MSDU\n\nPlease type either "MDU" or "MSDU".' 
+        }]);
+        
+        // Set flag to indicate we're waiting for adjustment type
+        setAwaitingAdjustmentType(true);
         setIsLoading(false);
         return;
       }
@@ -314,6 +456,13 @@ function ChatInterface() {
               >
                 <h3 className="font-medium text-gray-900">Analyze 6G Variance</h3>
                 <p className="text-sm text-gray-500 mt-1">Check for variances in 6G data across tables</p>
+              </button>
+              <button 
+                onClick={() => setInput('Sync stuck adjustments')}
+                className="bg-white border border-gray-300 rounded-xl p-4 hover:bg-gray-50 transition-colors text-left shadow-sm"
+              >
+                <h3 className="font-medium text-gray-900">Sync Stuck Adjustments</h3>
+                <p className="text-sm text-gray-500 mt-1">Clear MDU or MSDU stuck adjustments for DMAT IDs</p>
               </button>
             </div>
           </div>

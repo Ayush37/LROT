@@ -143,7 +143,19 @@ def get_openai_response(message, history=None, function_result=None):
                     },
                     "required": ["cob_date"]
                 }
-            }
+            },
+            {
+                "name": "sync_adjustments",
+                "description": "Clear or sync stuck adjustments for specified DMAT IDs",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "adjustment_type": {"type": "string", "description": "Type of adjustment - either 'MDU' or 'MSDU'"},
+                        "dmat_ids": {"type": "string", "description": "Comma-separated list of DMAT IDs to sync (e.g., '2015305,2015306')"}
+                    },
+                    "required": ["adjustment_type", "dmat_ids"]
+                }
+            }            
         ]
 #        functions = [
 #            {

@@ -3,3 +3,4 @@
 from functions.time_remaining import *
 from functions.sls_details_variance import *
 from functions.get_6g_status import *
+from functions.sync_adjustments import *
