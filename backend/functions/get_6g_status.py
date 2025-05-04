@@ -126,7 +126,7 @@ def get_historical_runtime_data(bpf_ids, days=30):
             start_time,
             end_time,
             status,
-            EXTRACT(HOUR FROM start_time) as start_hour,
+            TO_CHAR(start_time, 'HH24') as start_hour,
             TO_CHAR(start_time, 'D') as day_of_week,
             EXTRACT(DAY FROM cob_date) as day_of_month,
             (end_time - start_time) * 24 * 60 as duration_minutes
@@ -273,6 +273,103 @@ def predict_runtime_for_table(table_bpf_id, start_time, historical_data, cluster
             'adjustment_applied': 0
         }
 
+####def generate_sql_query(config, cob_date, table_identifier=None, include_running=False):
+####    """Generate SQL query based on configuration and parameters."""
+####    try:
+####        formatted_cob_date = format_date(cob_date)
+####        
+####        # Get process markers
+####        prelim_marker = config['process_markers']['prelim_end']
+####        sls_lock_marker = config['process_markers']['sls_lock_start']
+####        
+####        # Format SLS lock run types
+####        sls_lock_run_types = ", ".join([f"'{run_type}'" for run_type in sls_lock_marker['run_type']])
+####        
+####        # Create time window part of the query
+####        time_window_query = config['query_templates']['time_window'].format(
+####            prelim_bpf_id=prelim_marker['bpf_id'],
+####            prelim_process_id=prelim_marker['process_id'],
+####            prelim_run_type=prelim_marker['run_type'],
+####            sls_lock_bpf_id=sls_lock_marker['bpf_id'],
+####            sls_lock_process_id=sls_lock_marker['process_id'],
+####            sls_lock_run_types=sls_lock_run_types,
+####            cob_date=formatted_cob_date
+####        )
+####        
+####        # Modify the status filter based on include_running parameter
+####        status_filter = "status IN ('COMPLETED', 'RUNNING')" if include_running else "status = 'COMPLETED'"
+####        
+####        # Modify the query templates to include the new status filter
+####        if table_identifier:
+####            table = get_table_by_name_or_bpf(config, table_identifier)
+####            if not table:
+####                raise ValueError(f"Table not found: {table_identifier}")
+####                
+####            query = f"""{time_window_query}
+####SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####FROM (
+####  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####  FROM bpmdbo.v_bpf_run_instance_hist
+####  WHERE bpf_id = '{table['bpf_id']}'
+####    AND process_id = '10'
+####    AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
+####    AND {status_filter}
+####    AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
+####    AND (status = 'RUNNING' OR 
+####         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+####          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+####
+####  UNION ALL
+####
+####  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####  FROM bpmdbo.v_bpf_run_instance
+####  WHERE bpf_id = '{table['bpf_id']}'
+####    AND process_id = '10'
+####    AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
+####    AND {status_filter}
+####    AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
+####    AND (status = 'RUNNING' OR 
+####         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+####          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+####)
+####ORDER BY END_TIME DESC"""
+####        else:
+####            # All tables query
+####            all_bpf_ids = ", ".join([f"'{table['bpf_id']}'" for table in config['tables']])
+####            
+####            query = f"""{time_window_query}
+####SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####FROM (
+####  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####  FROM bpmdbo.v_bpf_run_instance_hist
+####  WHERE bpf_id IN ({all_bpf_ids})
+####    AND process_id = '10'
+####    AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
+####    AND {status_filter}
+####    AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
+####    AND (status = 'RUNNING' OR 
+####         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+####          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+####
+####  UNION ALL
+####
+####  SELECT bpf_id, process_id, bpf_name, process_name, cob_date, status, start_time, end_time
+####  FROM bpmdbo.v_bpf_run_instance
+####  WHERE bpf_id IN ({all_bpf_ids})
+####    AND process_id = '10'
+####    AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
+####    AND {status_filter}
+####    AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
+####    AND (status = 'RUNNING' OR 
+####         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+####          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+####)
+####ORDER BY bpf_id, END_TIME DESC"""
+####        
+####        return query
+####    except Exception as e:
+####        logger.error(f"Error generating SQL query: {str(e)}")
+####        raise
 def generate_sql_query(config, cob_date, table_identifier=None, include_running=False):
     """Generate SQL query based on configuration and parameters."""
     try:
@@ -297,9 +394,21 @@ def generate_sql_query(config, cob_date, table_identifier=None, include_running=
         )
         
         # Modify the status filter based on include_running parameter
-        status_filter = "status IN ('COMPLETED', 'RUNNING')" if include_running else "status = 'COMPLETED'"
+        if include_running:
+            status_condition = """(
+                status = 'RUNNING' 
+                OR 
+                (status = 'COMPLETED' AND 
+                    (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+                     OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)
+                )
+            )"""
+        else:
+            status_condition = """status = 'COMPLETED' 
+                AND (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
+                     OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL)"""
         
-        # Modify the query templates to include the new status filter
+        # Build query for single table or all tables
         if table_identifier:
             table = get_table_by_name_or_bpf(config, table_identifier)
             if not table:
@@ -313,11 +422,8 @@ FROM (
   WHERE bpf_id = '{table['bpf_id']}'
     AND process_id = '10'
     AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
-    AND {status_filter}
     AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
-    AND (status = 'RUNNING' OR 
-         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
-          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+    AND {status_condition}
 
   UNION ALL
 
@@ -326,11 +432,8 @@ FROM (
   WHERE bpf_id = '{table['bpf_id']}'
     AND process_id = '10'
     AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
-    AND {status_filter}
     AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
-    AND (status = 'RUNNING' OR 
-         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
-          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+    AND {status_condition}
 )
 ORDER BY END_TIME DESC"""
         else:
@@ -345,11 +448,8 @@ FROM (
   WHERE bpf_id IN ({all_bpf_ids})
     AND process_id = '10'
     AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
-    AND {status_filter}
     AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
-    AND (status = 'RUNNING' OR 
-         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
-          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+    AND {status_condition}
 
   UNION ALL
 
@@ -358,11 +458,8 @@ FROM (
   WHERE bpf_id IN ({all_bpf_ids})
     AND process_id = '10'
     AND cob_date = TO_DATE('{formatted_cob_date}', 'DD-Mon-YYYY')
-    AND {status_filter}
     AND START_TIME >= (SELECT max_end_time_prelim FROM MaxTimes)
-    AND (status = 'RUNNING' OR 
-         (END_TIME <= (SELECT max_start_time_sls_lock FROM MaxTimes)
-          OR (SELECT max_start_time_sls_lock FROM MaxTimes) IS NULL))
+    AND {status_condition}
 )
 ORDER BY bpf_id, END_TIME DESC"""
         
@@ -370,7 +467,6 @@ ORDER BY bpf_id, END_TIME DESC"""
     except Exception as e:
         logger.error(f"Error generating SQL query: {str(e)}")
         raise
-
 def execute_oracle_query(query):
     """Execute the Oracle query and return results."""
     try:
