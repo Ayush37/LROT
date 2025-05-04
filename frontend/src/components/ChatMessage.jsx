@@ -437,7 +437,7 @@ function ChatMessage({ message }) {
 	    </div>
 	  );
 	}    	
-    if (data.name === 'get_6g_status') {
+    if (data.name === 'get_5g_status') {
       const result = data.result;
       
       if (result.error) {
@@ -521,7 +521,144 @@ function ChatMessage({ message }) {
         </div>
       );
     }
-    
+    // Update the ChatMessage.jsx get_6g_status rendering section
+    if (data.name === 'get_6g_status') {
+      const result = data.result;
+      
+      if (result.error) {
+        return <div className="mt-3 bg-red-50 border border-red-200 rounded-lg p-4 text-sm text-red-800">{result.error}</div>;
+      }
+      
+      return (
+        <div className="mt-3 bg-gray-50 border border-gray-200 rounded-lg overflow-hidden">
+          <div className="bg-blue-50 p-4 border-b border-blue-100">
+            <h3 className="text-md font-semibold text-blue-800">
+              {result.process_name} ({result.process_alias}) Status
+            </h3>
+            <div className="grid grid-cols-2 gap-4 mt-2">
+              <div>
+                <p className="text-xs text-gray-500">COB Date</p>
+                <p className="text-sm font-medium">{result.cob_date}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Progress</p>
+                <p className="text-sm font-medium">
+                  {result.tables_completed} completed, {result.tables_running} running, {result.tables_pending} pending
+                </p>
+              </div>
+            </div>
+            
+            {/* Cluster Health Status */}
+            {result.cluster_health && (
+              <div className="mt-3 p-2 bg-white rounded-md">
+                <p className="text-xs text-gray-500 mb-1">Cluster Health</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <span className="text-xs">Memory: </span>
+                    <span className={`text-xs font-medium ${result.cluster_health.memory_utilization > 90 ? 'text-red-600' : 'text-green-600'}`}>
+                      {result.cluster_health.memory_utilization}%
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-xs">CPU: </span>
+                    <span className={`text-xs font-medium ${result.cluster_health.cpu_utilization > 90 ? 'text-red-600' : 'text-green-600'}`}>
+                      {result.cluster_health.cpu_utilization}%
+                    </span>
+                  </div>
+                </div>
+                {result.cluster_health.is_overloaded && (
+                  <p className="text-xs text-red-600 mt-1">⚠️ Cluster is overloaded - predictions adjusted</p>
+                )}
+              </div>
+            )}
+            
+            <div className="mt-3">
+              <div className="w-full bg-gray-200 rounded-full h-2.5">
+                <div 
+                  className={`h-2.5 rounded-full ${result.completion_percentage === 100 ? 'bg-green-500' : 'bg-blue-500'}`} 
+                  style={{ width: `${result.completion_percentage}%` }}
+                ></div>
+              </div>
+            </div>
+          </div>
+          
+          {result.tables && result.tables.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-100">
+                  <tr>
+                    <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Table Name</th>
+                    <th scope="col" className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">BPF ID</th>
+                    <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Start Time</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">End/Est. End</th>
+                    <th scope="col" className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Duration/Est.</th>
+                    <th scope="col" className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Confidence</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {result.tables.map((table, index) => (
+                    <tr key={index} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm font-medium text-gray-800">
+                        {table.name}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-600">
+                        {table.bpf_id}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-center">
+                        <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                          table.status === 'COMPLETED' ? 'bg-green-100 text-green-800' : 
+                          table.status === 'RUNNING' ? 'bg-yellow-100 text-yellow-800' : 
+                          'bg-gray-100 text-gray-800'
+                        }`}>
+                          {table.status}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.start_time}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.status === 'COMPLETED' ? table.end_time : table.estimated_completion_time}
+                        {table.status === 'RUNNING' && (
+                          <span className="text-xs text-gray-500 block">(Est.)</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-right text-gray-600">
+                        {table.status === 'COMPLETED' ? 
+                          `${table.duration_minutes || '-'} min` : 
+                          `${table.elapsed_minutes}/${table.predicted_duration} min`
+                        }
+                        {table.status === 'RUNNING' && table.estimated_remaining_minutes && (
+                          <span className="text-xs text-gray-500 block">
+                            ({table.estimated_remaining_minutes} min left)
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-center text-gray-600">
+                        {table.status === 'RUNNING' ? (
+                          <div className="text-xs">
+                            <span className={`${table.prediction_confidence > 10 ? 'text-green-600' : 'text-yellow-600'}`}>
+                              {table.prediction_confidence > 10 ? 'High' : 'Low'}
+                            </span>
+                            <span className="text-gray-500 block">
+                              ({table.prediction_range})
+                            </span>
+                          </div>
+                        ) : '-'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="p-4 text-center text-sm text-gray-500">
+              No tables found for this COB date.
+            </div>
+          )}
+        </div>
+      );
+    }
     return null;
   };
   
