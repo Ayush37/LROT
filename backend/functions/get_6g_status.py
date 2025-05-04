@@ -118,22 +118,16 @@ def get_yarn_cluster_metrics():
         if result.returncode != 0:
             raise Exception(f"Curl failed with return code {result.returncode}")
         
-        # Parse XML response
-        root = ET.fromstring(result.stdout)
+        # Parse JSON response
+        data = json.loads(result.stdout)
         
-        # Extract metrics
-        cluster_metrics = root.find('clusterMetrics')
-        if cluster_metrics is not None:
-            total_memory = int(cluster_metrics.find('totalMB').text)
-            allocated_memory = int(cluster_metrics.find('allocatedMB').text)
-            total_vcores = int(cluster_metrics.find('totalVirtualCores').text)
-            allocated_vcores = int(cluster_metrics.find('allocatedVirtualCores').text)
-        else:
-            # Direct access if structure is different
-            total_memory = int(root.find('totalMB').text)
-            allocated_memory = int(root.find('allocatedMB').text)
-            total_vcores = int(root.find('totalVirtualCores').text)
-            allocated_vcores = int(root.find('allocatedVirtualCores').text)
+        # Extract metrics from clusterMetrics
+        cluster_metrics = data.get('clusterMetrics', {})
+        
+        total_memory = cluster_metrics.get('totalMB', 0)
+        allocated_memory = cluster_metrics.get('allocatedMB', 0)
+        total_vcores = cluster_metrics.get('totalVirtualCores', 0)
+        allocated_vcores = cluster_metrics.get('allocatedVirtualCores', 0)
         
         # Calculate utilization
         memory_utilization = (allocated_memory / total_memory) * 100 if total_memory > 0 else 0
@@ -149,11 +143,30 @@ def get_yarn_cluster_metrics():
             'total_memory_mb': total_memory,
             'allocated_memory_mb': allocated_memory,
             'total_vcores': total_vcores,
-            'allocated_vcores': allocated_vcores
+            'allocated_vcores': allocated_vcores,
+            'apps_running': cluster_metrics.get('appsRunning', 0),
+            'apps_pending': cluster_metrics.get('appsPending', 0),
+            'active_nodes': cluster_metrics.get('activeNodes', 0),
+            'total_nodes': cluster_metrics.get('totalNodes', 0)
+        }
+    except subprocess.TimeoutExpired:
+        logger.error("Timeout while fetching YARN metrics")
+        return {
+            'memory_utilization': 0,
+            'cpu_utilization': 0,
+            'is_overloaded': False,
+            'error': 'Timeout while fetching YARN metrics'
+        }
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse JSON response: {str(e)}")
+        return {
+            'memory_utilization': 0,
+            'cpu_utilization': 0,
+            'is_overloaded': False,
+            'error': f'Failed to parse JSON response: {str(e)}'
         }
     except Exception as e:
         logger.error(f"Error fetching YARN metrics: {str(e)}")
-        # Return default values if API call fails
         return {
             'memory_utilization': 0,
             'cpu_utilization': 0,
