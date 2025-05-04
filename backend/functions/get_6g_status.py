@@ -605,6 +605,180 @@ def execute_oracle_query(query):
         logger.error(traceback.format_exc())
         raise
 
+
+
+
+###def get_6g_status(cob_date, table_name=None):
+###   """
+###   Get the status of the FR2052a (6G) batch process for a specific date.
+###   
+###   Args:
+###       cob_date (str): The COB date in MM-DD-YYYY format
+###       table_name (str, optional): Specific table name or BPF ID to check
+###       
+###   Returns:
+###       dict: Status information for the 6G batch process
+###   """
+###   try:
+###       logger.info(f"Getting 6G status for COB date: {cob_date}, table: {table_name}")
+###       
+###       # Load configuration
+###       config = load_config()
+###       
+###       # Get all BPF IDs for historical data
+###       all_bpf_ids = [table['bpf_id'] for table in config['tables']]
+###       
+###       # Get historical runtime data
+###       historical_data = get_historical_runtime_data(all_bpf_ids, days=30)
+###       
+###       # Get current YARN cluster metrics
+###       try:
+###           cluster_metrics = get_yarn_cluster_metrics()
+###       except Exception as e:
+###           logger.warning(f"Failed to get YARN metrics: {str(e)}")
+###           cluster_metrics = {'is_overloaded': False, 'memory_utilization': 0, 'cpu_utilization': 0}
+###       
+###       # Generate SQL query (include RUNNING tables)
+###       query = generate_sql_query(config, cob_date, table_name, include_running=True)
+###       
+###       # Execute query
+###       results = execute_oracle_query(query)
+###       
+###       # Process results
+###       if not results:
+###           return {
+###               "success": True,
+###               "cob_date": cob_date,
+###               "message": "No results found for the specified parameters",
+###               "tables_completed": 0,
+###               "tables_running": 0,
+###               "tables_pending": len(config['tables']),
+###               "total_tables": len(config['tables']),
+###               "tables": []
+###           }
+###           
+###       # Organize results by table
+###       tables_data = {}
+###       tables_completed = 0
+###       tables_running = 0
+###       current_time = datetime.now()
+###       
+###       for row in results:
+###           bpf_id = str(row['BPF_ID'])  # Ensure bpf_id is a string
+###           status = row['STATUS']
+###           
+###           # Find table name from BPF ID
+###           table_info = next((t for t in config['tables'] if t['bpf_id'] == bpf_id), None)
+###           if not table_info:
+###               continue
+###               
+###           # Get start and end times
+###           start_time = row['START_TIME']
+###           end_time = row['END_TIME']
+###           
+###           # Parse start_time for predictions
+###           if isinstance(start_time, str):
+###               start_time_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+###           else:
+###               start_time_dt = start_time
+###           
+###           # Basic table data
+###           table_data = {
+###               "bpf_id": bpf_id,
+###               "name": table_info['name'],
+###               "status": status,
+###               "process_name": row.get('PROCESS_NAME', ''),
+###               "start_time": start_time,
+###               "end_time": end_time
+###           }
+###           
+###           if status == 'COMPLETED':
+###               tables_completed += 1
+###               # Calculate duration in minutes if both times are available
+###               if isinstance(start_time, str) and isinstance(end_time, str):
+###                   try:
+###                       start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+###                       end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+###                       duration_minutes = round((end_dt - start_dt).total_seconds() / 60)
+###                       table_data['duration_minutes'] = duration_minutes
+###                   except Exception as e:
+###                       logger.warning(f"Could not calculate duration: {str(e)}")
+###           
+###           elif status == 'RUNNING':
+###               tables_running += 1
+###               # Calculate elapsed time
+###               elapsed_minutes = round((current_time - start_time_dt).total_seconds() / 60)
+###               table_data['elapsed_minutes'] = elapsed_minutes
+###               
+###               # Predict remaining time
+###               if not historical_data.empty:
+###                   prediction = predict_runtime_for_table(
+###                       bpf_id, start_time_dt, historical_data, cluster_metrics
+###                   )
+###                   
+###                   remaining_minutes = max(0, prediction['predicted_duration'] - elapsed_minutes)
+###                   estimated_completion = current_time + timedelta(minutes=remaining_minutes)
+###                   
+###                   table_data.update({
+###                       'predicted_duration': round(prediction['predicted_duration'], 1),
+###                       'estimated_remaining_minutes': round(remaining_minutes, 1),
+###                       'estimated_completion_time': estimated_completion.strftime('%Y-%m-%d %H:%M:%S'),
+###                       'prediction_confidence': prediction['confidence'],
+###                       'prediction_range': f"{round(prediction['lower_bound'], 1)}-{round(prediction['upper_bound'], 1)} mins",
+###                       'cluster_adjustment': prediction['adjustment_applied']
+###                   })
+###               else:
+###                   # Fallback if no historical data
+###                   table_data.update({
+###                       'predicted_duration': 30,
+###                       'estimated_remaining_minutes': 30,
+###                       'estimated_completion_time': (current_time + timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S'),
+###                       'prediction_confidence': 0,
+###                       'prediction_range': "20-40 mins",
+###                       'cluster_adjustment': 0
+###                   })
+###           
+###           # Store table data
+###           tables_data[bpf_id] = table_data
+###       
+###       # Convert to list and sort by table ID
+###       tables_list = list(tables_data.values())
+###       tables_list.sort(key=lambda x: next((t['id'] for t in config['tables'] if t['bpf_id'] == x['bpf_id']), 999))
+###       
+###       # Calculate pending tables
+###       tables_pending = len(config['tables']) - tables_completed - tables_running
+###       
+###       # Create summary
+###       response = {
+###           "success": True,
+###           "cob_date": cob_date,
+###           "process_name": config['process_name'],
+###           "process_alias": config['process_alias'],
+###           "tables_completed": tables_completed,
+###           "tables_running": tables_running,
+###           "tables_pending": tables_pending,
+###           "total_tables": len(config['tables']),
+###           "completion_percentage": round((tables_completed / len(config['tables'])) * 100),
+###           "cluster_health": {
+###               "memory_utilization": cluster_metrics.get('memory_utilization', 0),
+###               "cpu_utilization": cluster_metrics.get('cpu_utilization', 0),
+###               "is_overloaded": cluster_metrics.get('is_overloaded', False)
+###           },
+###           "tables": tables_list
+###       }
+###       
+###       return response
+###       
+###   except Exception as e:
+###       logger.error(f"Error in get_6g_status: {str(e)}")
+###       logger.error(traceback.format_exc())
+###       return {
+###           "success": False,
+###           "error": str(e),
+###           "cob_date": cob_date,
+###           "table_name": table_name
+###       }
+        
 def get_6g_status(cob_date, table_name=None):
     """
     Get the status of the FR2052a (6G) batch process for a specific date.
@@ -642,26 +816,14 @@ def get_6g_status(cob_date, table_name=None):
         results = execute_oracle_query(query)
         
         # Process results
-        if not results:
-            return {
-                "success": True,
-                "cob_date": cob_date,
-                "message": "No results found for the specified parameters",
-                "tables_completed": 0,
-                "tables_running": 0,
-                "tables_pending": len(config['tables']),
-                "total_tables": len(config['tables']),
-                "tables": []
-            }
-            
-        # Organize results by table
         tables_data = {}
         tables_completed = 0
         tables_running = 0
         current_time = datetime.now()
         
+        # First, process actual results from the database
         for row in results:
-            bpf_id = str(row['BPF_ID'])  # Ensure bpf_id is a string
+            bpf_id = str(row['BPF_ID'])
             status = row['STATUS']
             
             # Find table name from BPF ID
@@ -691,7 +853,7 @@ def get_6g_status(cob_date, table_name=None):
             
             if status == 'COMPLETED':
                 tables_completed += 1
-                # Calculate duration in minutes if both times are available
+                # Calculate duration
                 if isinstance(start_time, str) and isinstance(end_time, str):
                     try:
                         start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
@@ -724,26 +886,61 @@ def get_6g_status(cob_date, table_name=None):
                         'prediction_range': f"{round(prediction['lower_bound'], 1)}-{round(prediction['upper_bound'], 1)} mins",
                         'cluster_adjustment': prediction['adjustment_applied']
                     })
-                else:
-                    # Fallback if no historical data
-                    table_data.update({
-                        'predicted_duration': 30,
-                        'estimated_remaining_minutes': 30,
-                        'estimated_completion_time': (current_time + timedelta(minutes=30)).strftime('%Y-%m-%d %H:%M:%S'),
-                        'prediction_confidence': 0,
-                        'prediction_range': "20-40 mins",
-                        'cluster_adjustment': 0
-                    })
             
             # Store table data
             tables_data[bpf_id] = table_data
+        
+        # Now, add information for tables that haven't started yet
+        for table_config in config['tables']:
+            bpf_id = table_config['bpf_id']
+            if bpf_id not in tables_data:
+                # This table hasn't started yet (PENDING)
+                table_data = {
+                    "bpf_id": bpf_id,
+                    "name": table_config['name'],
+                    "status": "PENDING",
+                    "process_name": "",
+                    "start_time": None,
+                    "end_time": None
+                }
+                
+                # Add historical statistics for pending tables
+                if not historical_data.empty:
+                    table_history = historical_data[historical_data['BPF_ID'] == bpf_id]
+                    if not table_history.empty:
+                        avg_duration = table_history['DURATION_MINUTES'].mean()
+                        median_duration = table_history['DURATION_MINUTES'].median()
+                        min_duration = table_history['DURATION_MINUTES'].min()
+                        max_duration = table_history['DURATION_MINUTES'].max()
+                        
+                        table_data.update({
+                            'historical_avg_duration': round(avg_duration, 1),
+                            'historical_median_duration': round(median_duration, 1),
+                            'historical_range': f"{round(min_duration, 1)}-{round(max_duration, 1)} mins",
+                            'historical_runs': len(table_history)
+                        })
+                
+                tables_data[bpf_id] = table_data
+        
+        # Calculate pending tables
+        tables_pending = len(config['tables']) - tables_completed - tables_running
         
         # Convert to list and sort by table ID
         tables_list = list(tables_data.values())
         tables_list.sort(key=lambda x: next((t['id'] for t in config['tables'] if t['bpf_id'] == x['bpf_id']), 999))
         
-        # Calculate pending tables
-        tables_pending = len(config['tables']) - tables_completed - tables_running
+        # Add overall statistics
+        overall_stats = {}
+        if not historical_data.empty:
+            # Calculate average total runtime for all tables
+            daily_totals = historical_data.groupby('COB_DATE')['DURATION_MINUTES'].sum()
+            overall_stats = {
+                'avg_total_runtime': round(daily_totals.mean(), 1),
+                'median_total_runtime': round(daily_totals.median(), 1),
+                'min_total_runtime': round(daily_totals.min(), 1),
+                'max_total_runtime': round(daily_totals.max(), 1),
+                'historical_days': len(daily_totals)
+            }
         
         # Create summary
         response = {
@@ -761,6 +958,7 @@ def get_6g_status(cob_date, table_name=None):
                 "cpu_utilization": cluster_metrics.get('cpu_utilization', 0),
                 "is_overloaded": cluster_metrics.get('is_overloaded', False)
             },
+            "overall_statistics": overall_stats,
             "tables": tables_list
         }
         
@@ -774,7 +972,7 @@ def get_6g_status(cob_date, table_name=None):
             "error": str(e),
             "cob_date": cob_date,
             "table_name": table_name
-        }
+        }        
 
 # Register the function
 register_function("get_6g_status", get_6g_status)
