@@ -98,7 +98,68 @@ def get_yarn_cluster_metrics():
             'is_overloaded': False,
             'error': str(e)
         }
-
+def get_yarn_cluster_metrics():
+    """Fetch current YARN cluster health metrics."""
+    try:
+        import subprocess
+        import json
+        
+        # Use curl to fetch the metrics
+        url = "https://bdtashr36n15.svr.us.jpmchase.net:8090/ws/v1/cluster/metrics"
+        
+        # Run curl command
+        result = subprocess.run(
+            ['curl', '-k', url],  # -k flag ignores SSL certificate verification
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if result.returncode != 0:
+            raise Exception(f"Curl failed with return code {result.returncode}")
+        
+        # Parse XML response
+        root = ET.fromstring(result.stdout)
+        
+        # Extract metrics
+        cluster_metrics = root.find('clusterMetrics')
+        if cluster_metrics is not None:
+            total_memory = int(cluster_metrics.find('totalMB').text)
+            allocated_memory = int(cluster_metrics.find('allocatedMB').text)
+            total_vcores = int(cluster_metrics.find('totalVirtualCores').text)
+            allocated_vcores = int(cluster_metrics.find('allocatedVirtualCores').text)
+        else:
+            # Direct access if structure is different
+            total_memory = int(root.find('totalMB').text)
+            allocated_memory = int(root.find('allocatedMB').text)
+            total_vcores = int(root.find('totalVirtualCores').text)
+            allocated_vcores = int(root.find('allocatedVirtualCores').text)
+        
+        # Calculate utilization
+        memory_utilization = (allocated_memory / total_memory) * 100 if total_memory > 0 else 0
+        cpu_utilization = (allocated_vcores / total_vcores) * 100 if total_vcores > 0 else 0
+        
+        # Check if cluster is overloaded
+        is_overloaded = memory_utilization > 95 or cpu_utilization > 95
+        
+        return {
+            'memory_utilization': round(memory_utilization, 2),
+            'cpu_utilization': round(cpu_utilization, 2),
+            'is_overloaded': is_overloaded,
+            'total_memory_mb': total_memory,
+            'allocated_memory_mb': allocated_memory,
+            'total_vcores': total_vcores,
+            'allocated_vcores': allocated_vcores
+        }
+    except Exception as e:
+        logger.error(f"Error fetching YARN metrics: {str(e)}")
+        # Return default values if API call fails
+        return {
+            'memory_utilization': 0,
+            'cpu_utilization': 0,
+            'is_overloaded': False,
+            'error': str(e)
+        }
 def get_historical_runtime_data(bpf_ids, days=30):
     """Get historical runtime data for the last N days."""
     try:
