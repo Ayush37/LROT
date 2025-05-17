@@ -78,7 +78,7 @@ def get_yarn_cluster_metrics():
         cpu_utilization = (allocated_vcores / total_vcores) * 100 if total_vcores > 0 else 0
         
         # Check if cluster is overloaded
-        is_overloaded = memory_utilization > 95 or cpu_utilization > 95
+        is_overloaded = memory_utilization > 90 or cpu_utilization > 90
         
         return {
             'memory_utilization': round(memory_utilization, 2),
@@ -134,7 +134,7 @@ def get_yarn_cluster_metrics():
         cpu_utilization = (allocated_vcores / total_vcores) * 100 if total_vcores > 0 else 0
         
         # Check if cluster is overloaded
-        is_overloaded = memory_utilization > 95 or cpu_utilization > 95
+        is_overloaded = memory_utilization > 90 or cpu_utilization > 90
         
         return {
             'memory_utilization': round(memory_utilization, 2),
